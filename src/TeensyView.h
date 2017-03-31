@@ -43,7 +43,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef __cplusplus
 #include "Arduino.h"
 #include <SPI.h>
-#include <SPIN.h>
+//#include <SPIN.h>
 #include <DMAChannel.h>
 
 #endif
@@ -211,7 +211,7 @@ private:
 
 
 
- 	SPINClass *_pspin;
+ 	//SPINClass *_pspin;
 #ifdef KINETISK	
  	KINETISK_SPI_t *_pkinetisk_spi;
 #endif
@@ -220,22 +220,14 @@ private:
 #endif	
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
-		if (_pspin) {
-			_pspin->beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
-		} else {
-			SPI.beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
-		}
+		SPI.beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
 		if (_csport)
 			*_csport  &= ~_cspinmask;
 	}
 	void endSPITransaction() __attribute__((always_inline)) {
 		if (_csport)
 			*_csport |= _cspinmask;
-		if (_pspin) {
-			_pspin->endTransaction();
-		} else {
-			SPI.endTransaction();
-		}
+		SPI.endTransaction();
 	}
 
 
@@ -255,39 +247,75 @@ private:
 			_dcpinAsserted = 0;
 		}
 	}
+	void waitFifoNotFull(void) {
+	    uint32_t sr;
+	    uint32_t tmp __attribute__((unused));
+	    do {
+	        sr = KINETISK_SPI0.SR;
+	        if (sr & 0xF0) tmp = KINETISK_SPI0.POPR;  // drain RX FIFO
+	    } while ((sr & (15 << 12)) > ((4-1) << 12));
+	}
+	void waitFifoEmpty(void) {
+	    uint32_t sr;
+	    uint32_t tmp __attribute__((unused));
+	    do {
+	        sr = KINETISK_SPI0.SR;
+	        if (sr & 0xF0) tmp = KINETISK_SPI0.POPR;  // drain RX FIFO
+	    } while ((sr & 0xF0F0) > 0);             // wait both RX & TX empty
+	}
+	void waitTransmitComplete(void)  {
+	    uint32_t tmp __attribute__((unused));
+	    while (!(KINETISK_SPI0.SR & SPI_SR_TCF)) ; // wait until final output done
+	    tmp = KINETISK_SPI0.POPR;                  // drain the final RX FIFO word
+	}
+	void waitTransmitComplete(uint32_t mcr) {
+	    uint32_t tmp __attribute__((unused));
+	    while (1) {
+	        uint32_t sr = KINETISK_SPI0.SR;
+	        if (sr & SPI_SR_EOQF) break;  // wait for last transmit
+	        if (sr &  0xF0) tmp = KINETISK_SPI0.POPR;
+	    }
+	    KINETISK_SPI0.SR = SPI_SR_EOQF;
+	    KINETISK_SPI0.MCR = mcr;
+	    while (KINETISK_SPI0.SR & 0xF0) {
+	        tmp = KINETISK_SPI0.POPR;
+	    }
+	}
+
 	void writecommand_cont(uint8_t c) __attribute__((always_inline)) {
 		if (!_pcs_data) setCommandMode();
 		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-		_pspin->waitFifoNotFull();
+		waitFifoNotFull();
 	}
 	void writedata8_cont(uint8_t c) __attribute__((always_inline)) {
 		if (!_pcs_data) setDataMode();
 		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-		_pspin->waitFifoNotFull();
+		waitFifoNotFull();
 	}
 	void writedata16_cont(uint16_t d) __attribute__((always_inline)) {
 		if (!_pcs_data) setDataMode();
 		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_CONT;
-		_pspin->waitFifoNotFull();
+		waitFifoNotFull();
 	}
 	void writecommand_last(uint8_t c) __attribute__((always_inline)) {
 		if (!_pcs_data) setCommandMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-		_pspin->waitTransmitComplete(mcr);
+		waitTransmitComplete(mcr);
 	}
 	void writedata8_last(uint8_t c) __attribute__((always_inline)) {
 		if (!_pcs_data) setDataMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-		_pspin->waitTransmitComplete(mcr);
+		waitTransmitComplete(mcr);
 	}
 	void writedata16_last(uint16_t d) __attribute__((always_inline)) {
 		if (!_pcs_data) setDataMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_EOQ;
-		_pspin->waitTransmitComplete(mcr);
-	}
+		waitTransmitComplete(mcr);
+		}
+
 #endif
 #ifdef KINETISL
 	uint8_t _data_sent_not_completed;

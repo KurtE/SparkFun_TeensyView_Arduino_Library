@@ -198,17 +198,14 @@ void TeensyView::begin()
 */
 void TeensyView::command(uint8_t c, boolean last) {
 #if defined(KINETISK) || defined(KINETISL)
-	if (_pspin) {
-		if (last)
-			writecommand_last(c);
-		else	
-			writecommand_cont(c);
-	} else 
+	if (last)
+		writecommand_last(c);
+	else	
+		writecommand_cont(c);
+#else
+	digitalWrite(dcPin, LOW);;	// DC pin LOW for a command
+	spiTransfer(c);			// Transfer the command byte
 #endif
-	{
-		digitalWrite(dcPin, LOW);;	// DC pin LOW for a command
-		spiTransfer(c);			// Transfer the command byte
-	}
 }
 
 /** \brief Send the display a data byte
@@ -220,17 +217,14 @@ void TeensyView::command(uint8_t c, boolean last) {
 */
 void TeensyView::data(uint8_t c, boolean last) {
 #if defined(KINETISK) || defined(KINETISL)
-	if (_pspin) {
-		if (last)
-			writedata8_last(c);
-		else	
-			writedata8_cont(c);
-	} else 
-#endif
-	{
+	if (last)
+		writedata8_last(c);
+	else	
+		writedata8_cont(c);
+#else
 		digitalWrite(dcPin, HIGH);	// DC HIGH for a data byte
 		spiTransfer(c); 		// Transfer the data byte
-	}
+#endif
 }
 
 /** \brief Set SSD1306 page address.
