@@ -53,9 +53,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define BLACK 0
 #define WHITE 1
 
+// Define this if you wish to support the larger displays
+#define LCDMAXHEIGHT		64
+#define TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
+
 #define LCDWIDTH			128
 #define LCDHEIGHT			32
-#define LCDMEMORYSIZE		( LCDWIDTH * LCDHEIGHT / 8 )
+#ifndef LCDMAXHEIGHT
+#define LCDMAXHEIGHT		LCDHEIGHT
+#endif
+
+#define LCDMAXMEMORYSIZE	( LCDWIDTH * LCDMAXHEIGHT / 8 )
+//#define LCDMEMORYSIZE		( LCDWIDTH * _height / 8 )
 
 #define FONTHEADERSIZE		6
 // The font header size is the first bytes of the static const unsigned char space that are not data.
@@ -65,8 +74,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define NORM				0
 #define XOR					1
 
-#define PAGE				0
-#define ALL					1
+#define PAGE				0x1
+#define HARDWARE_MEM		0x02
+#define ALL					0x3
 
 #define SETCONTRAST 		0x81
 #define DISPLAYALLONRESUME 	0xA4
@@ -126,7 +136,7 @@ typedef enum CMD {
 class TeensyView : public Print{
 public:
 	// Constructor(s)
-	TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi);
+	TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height=32);
 	
 	void begin(void);
 	void setClockRate( uint32_t );
@@ -164,7 +174,7 @@ public:
 	void circleFill(uint8_t x0, uint8_t y0, uint8_t radius, uint8_t color, uint8_t mode);
 	void drawChar(uint8_t x, uint8_t y, uint8_t c);
 	void drawChar(uint8_t x, uint8_t y, uint8_t c, uint8_t color, uint8_t mode);
-	void drawBitmap(uint8_t * bitArray);
+	void drawBitmap(const uint8_t * bitArray, uint16_t cbArray);
 	uint8_t getLCDWidth(void);
 	uint8_t getLCDHeight(void);
 	void setColor(uint8_t color);
@@ -208,8 +218,7 @@ private:
 	uint8_t _pcs_data, _pcs_command;
     volatile uint8_t *_csport, *_dcport;
     uint8_t _cspinmask, _dcpinmask;
-
-
+    uint8_t _height;
 
  	SPINClass *_pspin;
 #ifdef KINETISK	
@@ -218,6 +227,15 @@ private:
 #ifdef KINETISL
  	KINETISL_SPI_t *_pkinetisl_spi;
 #endif	
+ 	// Screen memory as part of class...
+ 	// Question should we fix size it or malloc it depending on size of 
+ 	// Screen? ... 
+#ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
+	uint8_t *screenmemory; 
+#else 	
+	uint8_t screenmemory [LCDMAXMEMORYSIZE]; 
+#endif
+	uint16_t _screenmemory_size;
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
 		if (_pspin) {
