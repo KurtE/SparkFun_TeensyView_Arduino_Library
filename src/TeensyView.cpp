@@ -43,6 +43,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "font8x16.h"
 #include "fontlargenumber.h"
 #include "sevenSegment.h"
+#include <stdlib.h>
 
 // Change the total fonts included
 #define TOTALFONTS		4
@@ -82,7 +83,7 @@ As a default, this is filled with the SparkFun logo
 //         D6 D6.............D6      |
 //         D7 D7.............D7  ----
 //
-static uint8_t screenmemory [LCDMEMORYSIZE] =
+const static uint8_t splash_screen [] =
 {
 // ROW0, BYTE0 to BYTE127
 	0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x80, 0x80, 0x00, 0x00, 0x00, 0x80, 0x80, 0xC0, 0xC0, 0xC0, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x80, 0x80, 0xC0, 0xC0, 0xC0, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0xFC, 0xFE, 0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xF8, 0xFE, 0xFE, 0xFF, 0xFF, 0xDF, 0xCF, 0xCF, 0x0F, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0x00, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 
@@ -93,13 +94,13 @@ static uint8_t screenmemory [LCDMEMORYSIZE] =
 // ROW3, BYTE384 to BYTE511
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
-#define LAST_SCREEN_DATA (&screenmemory [LCDMEMORYSIZE-1])
+//#define LAST_SCREEN_DATA (&screenmemory [LCDMEMORYSIZE-1])
 /** \brief TeensyView Constructor -- SPI Mode
 
 	Setup the TeensyView class, configure the display to be controlled via a
 	SPI interface.
 */
-TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi)
+TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height)
 {
 	// Assign each of the parameters to a private class variable.
 	rstPin = rst;
@@ -107,7 +108,9 @@ TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t
 	csPin = cs;
 	sckPin = sck;
 	mosiPin = mosi;
+	_height = height; 
 	clockRateSetting = 8000000;//Default rate of 8 MHz
+	_screenmemory_size = ( (uint16_t)(LCDWIDTH * _height ) / 8 );
 }
 
 //Set a non-default clock rate.  Run this before begin if alt rate is desired.
@@ -131,6 +134,14 @@ void TeensyView::begin()
 	pinMode(dcPin, OUTPUT);
 	pinMode(rstPin, OUTPUT);
 
+//	Serial.println( LCDWIDTH * _height / 8 , DEC);
+#ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
+	screenmemory = (uint8_t*)malloc(( LCDWIDTH * _height / 8 )) ;
+//	Serial.print("Malloc: ");
+//	Serial.println((uint32_t)screenmemory, HEX);
+#endif
+
+
 	// Set up the selected (only SPI) interface:
 	spiSetup();
 
@@ -151,13 +162,15 @@ void TeensyView::begin()
 
 	command(SETMULTIPLEX);			// 0xA8
 //	command(0x2F);
-	command(0x1F);
+	command(_height-1);
 
 	command(SETDISPLAYOFFSET);		// 0xD3
 	command(0x0);					// no offset
 
-//	command(SETSTARTLINE | 0x0);	// line #0
-	command(SETSTARTLINE | 0x40);	// for wide 128x32
+	if (_height == 64)
+		command(SETSTARTLINE | 0x0);	// line #0
+	else
+		command(SETSTARTLINE | 0x40);	// for wide 128x32
 
 	command(CHARGEPUMP);			// enable charge pump
 	command(0x14);
@@ -172,7 +185,7 @@ void TeensyView::begin()
 
 	command(SETCOMPINS);			// 0xDA
 //	command(0x12);
-	command(0x02);					// for wide 128x32
+	command((_height==64)? 0x12 : 0x02);					// for wide 128x32
 	
 	command(SETCONTRAST);			// 0x81
 	command(0x8F);
@@ -187,6 +200,7 @@ void TeensyView::begin()
 	command(DISPLAYON);				//--turn on oled panel
 	endSPITransaction();			// Actually clear will handle this as well
 	clear(ALL);						// Erase hardware memory inside the OLED controller to avoid random data in memory.
+	drawBitmap(splash_screen, sizeof(splash_screen));		// Set the initial screen to our saved splash screen
 }
 
 /** \brief Send the display a command byte
@@ -283,7 +297,7 @@ void TeensyView::clear(uint8_t mode) {
 	To clear GDRAM inside the LCD controller, pass in the variable mode = ALL with c character and to clear screen page buffer, pass in the variable mode = PAGE with c character.
 */
 void TeensyView::clear(uint8_t mode, uint8_t c) {
-	if (mode==ALL) {
+	if (mode & HARDWARE_MEM) {
 		beginSPITransaction();
 		for (int i=0;i<8; i++) {
 			setPageAddress(i);
@@ -297,9 +311,8 @@ void TeensyView::clear(uint8_t mode, uint8_t c) {
 		}
 		endSPITransaction();
 	}
-	else
-	{
-		memset(screenmemory,c,LCDMEMORYSIZE);			// write 'c' on MCU side buffer
+	if (mode & PAGE) {
+		memset(screenmemory,c, _screenmemory_size);			// write 'c' on MCU side buffer
 		display();
 	}
 }
@@ -335,13 +348,13 @@ void TeensyView::contrast(uint8_t contrast) {
 void TeensyView::display(void) {
 	uint8_t i, j;
 	uint8_t *pscreen_data = screenmemory; 
-
+	uint8_t count_pages = (_height/8);
 	beginSPITransaction();
-	for (i=0; i<(LCDHEIGHT/8); i++) {
+	for (i=0; i<count_pages; i++) {
 		setPageAddress(i);
 		setColumnAddress(0);
 		for (j=0;j<LCDWIDTH;j++) {
-			if ((!_pcs_command && (j == (LCDWIDTH-1))) || (pscreen_data == LAST_SCREEN_DATA))
+			if ((j == (LCDWIDTH-1)) && (!_pcs_command || (i == (count_pages-1))))
 				data(*pscreen_data, true);
 			else
 				data(*pscreen_data, false);
@@ -407,7 +420,7 @@ void TeensyView::pixel(uint8_t x, uint8_t y) {
 Draw color pixel in the screen buffer's x,y position with NORM or XOR draw mode.
 */
 void TeensyView::pixel(uint8_t x, uint8_t y, uint8_t color, uint8_t mode) {
-	if ((x<0) ||  (x>=LCDWIDTH) || (y<0) || (y>=LCDHEIGHT))
+	if ((x<0) ||  (x>=LCDWIDTH) || (y<0) || (y>=_height))
 	return;
 
 	if (mode==XOR) {
@@ -652,7 +665,7 @@ void TeensyView::circleFill(uint8_t x0, uint8_t y0, uint8_t radius, uint8_t colo
     The height of the LCD return as byte.
 */
 uint8_t TeensyView::getLCDHeight(void) {
-	return LCDHEIGHT;
+	return _height;
 }
 
 /** \brief Get LCD width.
@@ -890,8 +903,10 @@ uint8_t *TeensyView::getScreenBuffer(void) {
 Draw Bitmap image on screen. The array for the bitmap can be stored in the Arduino file, so user don't have to mess with the library files.
 To use, create uint8_t array that is 128x32 pixels (LCDMEMORYSIZE bytes). Then call .drawBitmap and pass it the array.
 */
-void TeensyView::drawBitmap(uint8_t * bitArray)
+void TeensyView::drawBitmap(const uint8_t * bitArray, uint16_t cbArray)
 {
-  for (int i=0; i<LCDMEMORYSIZE; i++)
-    screenmemory[i] = bitArray[i];
+	if (cbArray > _screenmemory_size)
+		cbArray = _screenmemory_size;
+  	for (int i=0; i<cbArray; i++)
+    	screenmemory[i] = bitArray[i];
 }
