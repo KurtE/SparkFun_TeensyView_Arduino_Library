@@ -43,7 +43,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef __cplusplus
 #include "Arduino.h"
 #include <SPI.h>
-//#include <SPIN.h>
 #include <DMAChannel.h>
 
 #endif
@@ -101,6 +100,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define CHARGEPUMP 			0x8D
 #define EXTERNALVCC 		0x01
 #define SWITCHCAPVCC 		0x02
+//////////////////////////////////
+#define COLUMNADDR 			0x21
+#define PAGEADDR   			0x22
+#define DISPLAYALLON_RESUME 0xA4
+
 
 // Scroll
 #define ACTIVATESCROLL 					0x2F
@@ -136,7 +140,7 @@ typedef enum CMD {
 class TeensyView : public Print{
 public:
 	// Constructor(s)
-	TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height=32);
+	TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height=32, SPIClass *spi=&SPI);
 	
 	void begin(void);
 	void setClockRate( uint32_t );
@@ -155,6 +159,21 @@ public:
 	void contrast(uint8_t contrast);
 	void display(void);
 	void display(uint8_t);
+	void displayAyncCallBack(void);
+	bool displayAsync(void);
+	bool displayAsyncActive();
+
+	// Kludge - static call backs for each SPI buss...
+	void  (*_displayAyncCB)();
+	static void callback0();
+#if SPI_INTERFACES_COUNT > 1	
+	static void callback1();
+#endif
+#if SPI_INTERFACES_COUNT > 2	
+	static void callback2();
+#endif	
+	static  TeensyView *s_tvcb_active_object[SPI_INTERFACES_COUNT];
+
 	void setCursor(uint8_t x, uint8_t y);
 	void pixel(uint8_t x, uint8_t y);
 	void pixel(uint8_t x, uint8_t y, uint8_t color, uint8_t mode);
@@ -180,6 +199,7 @@ public:
 	void setColor(uint8_t color);
 	void setDrawMode(uint8_t mode);
 	uint8_t *getScreenBuffer(void);
+	uint16_t getScreenBufferSize(void);
 
 	// Font functions
 	uint8_t getFontWidth(void);
@@ -214,13 +234,20 @@ private:
 	void spiTransfer(byte data);
 	void spiSetup();
 
-	// Stuff added to switch to using SPIN
+	// 
 	uint8_t _pcs_data, _pcs_command;
     volatile uint8_t *_csport, *_dcport;
     uint8_t _cspinmask, _dcpinmask;
     uint8_t _height;
 
+    // ASYNC support, need to save stuff to be used in callback
+    volatile uint8_t _display_async_state; 	// What state we are in.  Probably even numbers output page description, Odd output page data.
+	uint8_t _set_column_row_address[6];
+
+
  	//SPINClass *_pspin;
+ 	SPIClass *_spi;		// Which spi buss to use. 
+ 	uint8_t	 _spi_bus;	// which bus are we on?
 #ifdef KINETISK	
  	KINETISK_SPI_t *_pkinetisk_spi;
 #endif
@@ -238,14 +265,14 @@ private:
 	uint16_t _screenmemory_size;
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
-		SPI.beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
+		_spi->beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
 		if (_csport)
 			*_csport  &= ~_cspinmask;
 	}
 	void endSPITransaction() __attribute__((always_inline)) {
 		if (_csport)
 			*_csport |= _cspinmask;
-		SPI.endTransaction();
+		_spi->endTransaction();
 	}
 
 
@@ -269,66 +296,66 @@ private:
 	    uint32_t sr;
 	    uint32_t tmp __attribute__((unused));
 	    do {
-	        sr = KINETISK_SPI0.SR;
-	        if (sr & 0xF0) tmp = KINETISK_SPI0.POPR;  // drain RX FIFO
-	    } while ((sr & (15 << 12)) > ((4-1) << 12));
+	        sr = _pkinetisk_spi->SR;
+	        if (sr & 0xF0) tmp = _pkinetisk_spi->POPR;  // drain RX FIFO
+	    } while ((sr & (15 << 12)) > (((uint32_t)_spi->queueSize()-1) << 12));
 	}
 	void waitFifoEmpty(void) {
 	    uint32_t sr;
 	    uint32_t tmp __attribute__((unused));
 	    do {
-	        sr = KINETISK_SPI0.SR;
-	        if (sr & 0xF0) tmp = KINETISK_SPI0.POPR;  // drain RX FIFO
+	        sr = _pkinetisk_spi->SR;
+	        if (sr & 0xF0) tmp = _pkinetisk_spi->POPR;  // drain RX FIFO
 	    } while ((sr & 0xF0F0) > 0);             // wait both RX & TX empty
 	}
 	void waitTransmitComplete(void)  {
 	    uint32_t tmp __attribute__((unused));
-	    while (!(KINETISK_SPI0.SR & SPI_SR_TCF)) ; // wait until final output done
-	    tmp = KINETISK_SPI0.POPR;                  // drain the final RX FIFO word
+	    while (!(_pkinetisk_spi->SR & SPI_SR_TCF)) ; // wait until final output done
+	    tmp = _pkinetisk_spi->POPR;                  // drain the final RX FIFO word
 	}
 	void waitTransmitComplete(uint32_t mcr) {
 	    uint32_t tmp __attribute__((unused));
 	    while (1) {
-	        uint32_t sr = KINETISK_SPI0.SR;
+	        uint32_t sr = _pkinetisk_spi->SR;
 	        if (sr & SPI_SR_EOQF) break;  // wait for last transmit
-	        if (sr &  0xF0) tmp = KINETISK_SPI0.POPR;
+	        if (sr &  0xF0) tmp = _pkinetisk_spi->POPR;
 	    }
-	    KINETISK_SPI0.SR = SPI_SR_EOQF;
-	    KINETISK_SPI0.MCR = mcr;
-	    while (KINETISK_SPI0.SR & 0xF0) {
-	        tmp = KINETISK_SPI0.POPR;
+	    _pkinetisk_spi->SR = SPI_SR_EOQF;
+	    _pkinetisk_spi->MCR = mcr;
+	    while (_pkinetisk_spi->SR & 0xF0) {
+	        tmp = _pkinetisk_spi->POPR;
 	    }
 	}
 
 	void writecommand_cont(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_data) setCommandMode();
+		if (!_pcs_command) setCommandMode();
 		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
 		waitFifoNotFull();
 	}
 	void writedata8_cont(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_data) setDataMode();
+		if (!_pcs_command) setDataMode();
 		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
 		waitFifoNotFull();
 	}
 	void writedata16_cont(uint16_t d) __attribute__((always_inline)) {
-		if (!_pcs_data) setDataMode();
+		if (!_pcs_command) setDataMode();
 		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_CONT;
 		waitFifoNotFull();
 	}
 	void writecommand_last(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_data) setCommandMode();
+		if (!_pcs_command) setCommandMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
 		waitTransmitComplete(mcr);
 	}
 	void writedata8_last(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_data) setDataMode();
+		if (!_pcs_command) setDataMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
 		waitTransmitComplete(mcr);
 	}
 	void writedata16_last(uint16_t d) __attribute__((always_inline)) {
-		if (!_pcs_data) setDataMode();
+		if (!_pcs_command) setDataMode();
 		uint32_t mcr = _pkinetisk_spi->MCR;
 		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_EOQ;
 		waitTransmitComplete(mcr);

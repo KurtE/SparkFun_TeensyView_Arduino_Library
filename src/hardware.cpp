@@ -49,28 +49,50 @@ void TeensyView::spiSetup()
 //	_pspin = NULL; 	// assume we will not use the hardware...
 
 #if defined(KINETISK) || defined(KINETISL) 
+	// lets try new functions in my SPI to validate the pins and if they 
+	// are not appropriate for the _spi object then try to set to using 
 	// BUGBUG We are not verifying that the Mosi and SCK pins are valid...
-	SPI.setMOSI(mosiPin);	// set the mosi pin. 
-	SPI.setSCK(sckPin);
+	if (!_spi->pinIsMOSI(mosiPin) || !_spi->pinIsSCK(sckPin)) {
+		#if SPI_INTERFACES_COUNT > 1
+		if (SPI1.pinIsMOSI(mosiPin) && SPI1.pinIsSCK(sckPin)) {
+			_spi = &SPI1;
+			_spi_bus = 1;
+		}
+		#if SPI_INTERFACES_COUNT > 2
+		else if (SPI2.pinIsMOSI(mosiPin) && SPI2.pinIsSCK(sckPin)) {
+			_spi = &SPI2;
+			_spi_bus = 2;
+		}
+		#endif  // > 2
+		else
+		#endif
+		{
+			Serial.print("Not valid SPI pins");
+		}
 
-	SPI.begin();		// startup SPI
-	//Serial.println("Using SPIN");
+	}
+
+	_spi->setMOSI(mosiPin);	// set the mosi pin. 
+	_spi->setSCK(sckPin);
+
+	_spi->begin();		// startup SPI
+	Serial.println("SPI Setup");
 #ifdef KINETISK
-	_pkinetisk_spi = &KINETISK_SPI0; // get handle on which SPI register set to use
+	_pkinetisk_spi = &_spi->SPIRegisters(); // get handle on which SPI register set to use
 #else
-	_pkinetisl_spi = &KINETISL_SPI0; // get handle on which SPI register set to use
+	_pkinetisl_spi = &_spi->SPIRegisters(); // get handle on which SPI register set to use
 #endif		
 		// Now see if both cs and dc are chip select pins
-#ifdef KINETISK
-	if (SPI.pinIsChipSelect(dcPin, csPin)) {
-		//Serial.println("CS and DC both hardware");
-		_pcs_data = SPI.setCS(csPin);
-		_pcs_command = _pcs_data | SPI.setCS(dcPin);
+#ifdef KINETISK_XXX
+	if (_spi->pinIsChipSelect(dcPin, csPin)) {
+		Serial.println("CS and DC both hardware");
+		_pcs_data = _spi->setCS(csPin);
+		_pcs_command = _pcs_data | _spi->setCS(dcPin);
 		_csport = 0;	// make sure not to use it...
-	} else if (SPI.pinIsChipSelect(dcPin)) {
-		//Serial.println("only DC is hardware");
+	} else if (_spi->pinIsChipSelect(dcPin)) {
+		Serial.println("only DC is hardware");
 		_pcs_data = 0;
-		_pcs_command = _pcs_data | SPI.setCS(dcPin);
+		_pcs_command = _pcs_data | _spi->setCS(dcPin);
 		pinMode(csPin, OUTPUT);
 		_csport    = portOutputRegister(digitalPinToPort(csPin));
 		_cspinmask = digitalPinToBitMask(csPin);
@@ -78,7 +100,7 @@ void TeensyView::spiSetup()
 	} else 
 #endif
 	{
-		//Serial.println("Not using Hardware CS pins");
+		Serial.println("Not using Hardware CS pins");
 		_pcs_data = 0;
 		_pcs_command = 0;
 		pinMode(csPin, OUTPUT);
@@ -97,10 +119,10 @@ void TeensyView::spiSetup()
 	digitalWrite(csPin, HIGH);	// Start CS High
 	
 	//Do alt pin assignment
-	SPI.setMOSI(mosiPin);
-	SPI.setSCK(sckPin);
+	_spi->setMOSI(mosiPin);
+	_spi->setSCK(sckPin);
 	
-	SPI.begin();
+	_spi->begin();
 #endif	
 }
 
@@ -112,7 +134,7 @@ void TeensyView::spiSetup()
 void TeensyView::spiTransfer(byte data)
 {
     digitalWrite(csPin, LOW);
-	SPI.transfer(data);	
+	_spi->transfer(data);	
     digitalWrite(csPin, HIGH);
 }
 

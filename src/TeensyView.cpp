@@ -94,23 +94,38 @@ const static uint8_t splash_screen [] =
 // ROW3, BYTE384 to BYTE511
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
+
+TeensyView *TeensyView::s_tvcb_active_object[SPI_INTERFACES_COUNT] = {(TeensyView*)0};
+
 //#define LAST_SCREEN_DATA (&screenmemory [LCDMEMORYSIZE-1])
 /** \brief TeensyView Constructor -- SPI Mode
 
 	Setup the TeensyView class, configure the display to be controlled via a
 	SPI interface.
 */
-TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height)
+TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t height, SPIClass *spi)
+	: _spi(spi)
 {
 	// Assign each of the parameters to a private class variable.
+	_spi_bus = 0;	// assume standard bus
 	rstPin = rst;
 	dcPin = dc;
 	csPin = cs;
 	sckPin = sck;
 	mosiPin = mosi;
 	_height = height; 
+
+	_set_column_row_address[0] = COLUMNADDR;
+	_set_column_row_address[1] = 0;
+	_set_column_row_address[2] = LCDWIDTH-1;
+	_set_column_row_address[3] = PAGEADDR;
+	_set_column_row_address[4] = 0;
+	_set_column_row_address[5] = (_height == 64) ? 7 : 3;
+
 	clockRateSetting = 8000000;//Default rate of 8 MHz
 	_screenmemory_size = ( (uint16_t)(LCDWIDTH * _height ) / 8 );
+	_display_async_state = 0xff; 
+	_displayAyncCB = nullptr;
 }
 
 //Set a non-default clock rate.  Run this before begin if alt rate is desired.
@@ -125,6 +140,7 @@ void TeensyView::setClockRate( uint32_t inputClockRate )
 */
 void TeensyView::begin()
 {
+
 	// default 5x7 font
 	setFontType(0);
 	setColor(WHITE);
@@ -156,7 +172,6 @@ void TeensyView::begin()
 	// Display Init sequence for 64x48 OLED module
 	beginSPITransaction();
 	command(DISPLAYOFF);			// 0xAE
-
 	command(SETDISPLAYCLOCKDIV);	// 0xD5
 	command(0x80);					// the suggested ratio 0x80
 
@@ -174,6 +189,11 @@ void TeensyView::begin()
 
 	command(CHARGEPUMP);			// enable charge pump
 	command(0x14);
+
+	/////////////////////////////////
+	command(MEMORYMODE);			// Put memory into horizontal addressing mode
+	command(0); 
+	////////////////////////////////
 
 	command(SEGREMAP | 0x1);
 
@@ -196,6 +216,14 @@ void TeensyView::begin()
 	command(SETVCOMDESELECT);			// 0xDB
 	command(0x40);
 	//command(0x00);
+	/////////////////////////////////
+	//command(DISPLAYALLON_RESUME);           // 0xA4
+	//command(NORMALDISPLAY);                 // 0xA6
+
+	command(DEACTIVATESCROLL);
+
+
+	/////////////////////////////////
 	
 	command(DISPLAYON);				//--turn on oled panel
 	endSPITransaction();			// Actually clear will handle this as well
@@ -212,6 +240,7 @@ void TeensyView::begin()
 */
 void TeensyView::command(uint8_t c, boolean last) {
 #if defined(KINETISK) || defined(KINETISL)
+//	Serial.printf("command: %d %d\n", c, last); 
 	if (last)
 		writecommand_last(c);
 	else	
@@ -313,7 +342,7 @@ void TeensyView::clear(uint8_t mode, uint8_t c) {
 	}
 	if (mode & PAGE) {
 		memset(screenmemory,c, _screenmemory_size);			// write 'c' on MCU side buffer
-		display();
+		//display();
 	}
 }
 
@@ -345,6 +374,95 @@ void TeensyView::contrast(uint8_t contrast) {
 
     Bulk move the screen buffer to the SSD1306 controller's memory so that images/graphics drawn on the screen buffer will be displayed on the OLED.
 */
+#if 1
+// Real hack to see if we can use new Transfer function to speed things up without 
+// doing really tricky things. 
+void TeensyView::display(void) {
+	beginSPITransaction();
+	*_dcport  &= ~_dcpinmask; // assert DC
+	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address));
+	*_dcport  |= _dcpinmask;
+	_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8);
+	endSPITransaction();
+}
+
+void TeensyView::callback0() 
+{
+	s_tvcb_active_object[0]->displayAyncCallBack();
+}
+#if SPI_INTERFACES_COUNT > 1	
+void TeensyView::callback1() 
+{
+	s_tvcb_active_object[1]->displayAyncCallBack();
+}
+#endif
+#if SPI_INTERFACES_COUNT > 2
+void TeensyView::callback2() 
+{
+	s_tvcb_active_object[2]->displayAyncCallBack();
+}
+#endif
+
+// Need to figure out how I will get here, but...
+void TeensyView::displayAyncCallBack(void) {
+	// See what state we are in 
+	_display_async_state++;
+	//Serial.printf("%d:%d\n", _spi_bus, _display_async_state);
+
+	if (_display_async_state == 1) {
+		*_dcport  |= _dcpinmask;
+		_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8, _displayAyncCB);
+	} else {
+		// Finished the screen update. 
+		endSPITransaction();
+		_display_async_state = 0xff; 
+		// And say that we are no longer actively updating display
+		s_tvcb_active_object[_spi_bus] = nullptr;
+	}
+
+}
+
+bool TeensyView::displayAsync(void) {
+
+	if (displayAsyncActive()) 
+		return false;
+
+	// Kludge need to setup for static call back function.
+	if (!_displayAyncCB) {
+		if (_spi_bus == 0) {
+			_displayAyncCB = &callback0;
+		}
+#if SPI_INTERFACES_COUNT > 1
+		if (_spi_bus == 1) {
+			_displayAyncCB = &callback1;
+		}
+#endif
+#if SPI_INTERFACES_COUNT > 2
+		if (_spi_bus == 2) {
+			_displayAyncCB = &callback2;
+		}
+#endif
+	}
+
+	// Now wait until we can claim the display...
+	while (s_tvcb_active_object[_spi_bus] != nullptr) ;
+	s_tvcb_active_object[_spi_bus] = this; 	// Save away our this
+
+	_display_async_state = 0; 
+
+	// Use the call back function to start the transfer
+	beginSPITransaction();
+	*_dcport  &= ~_dcpinmask; // assert DC
+
+	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address), _displayAyncCB);
+	return true;
+}
+
+bool TeensyView::displayAsyncActive() {
+	return _display_async_state != 0xff;
+}
+
+#else
 void TeensyView::display(void) {
 	uint8_t i, j;
 	uint8_t *pscreen_data = screenmemory; 
@@ -363,6 +481,7 @@ void TeensyView::display(void) {
 	}
 	endSPITransaction();
 }
+#endif
 
 void TeensyView::display(uint8_t i) {
 	uint8_t j;
@@ -897,6 +1016,10 @@ void TeensyView::flipHorizontal(boolean flip) {
 */
 uint8_t *TeensyView::getScreenBuffer(void) {
 	return screenmemory;
+}
+
+uint16_t TeensyView::getScreenBufferSize(void) {
+	return  LCDWIDTH * _height / 8 ;
 }
 
 /*
