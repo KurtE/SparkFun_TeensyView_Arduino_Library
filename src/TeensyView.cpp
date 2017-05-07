@@ -124,6 +124,10 @@ TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t
 
 	clockRateSetting = 8000000;//Default rate of 8 MHz
 	_screenmemory_size = ( (uint16_t)(LCDWIDTH * _height ) / 8 );
+#ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
+	screenmemory = nullptr;
+#endif	
+
 	_display_async_state = 0xff; 
 	_displayAyncCB = nullptr;
 }
@@ -152,7 +156,9 @@ void TeensyView::begin()
 
 //	Serial.println( LCDWIDTH * _height / 8 , DEC);
 #ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
-	screenmemory = (uint8_t*)malloc(( LCDWIDTH * _height / 8 )) ;
+	if (screenmemory == nullptr)	 {
+		screenmemory = (uint8_t*)malloc(( LCDWIDTH * _height / 8 )) ;
+	}
 //	Serial.print("Malloc: ");
 //	Serial.println((uint32_t)screenmemory, HEX);
 #endif

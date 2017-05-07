@@ -220,6 +220,16 @@ public:
 	void flipVertical(boolean flip);
 	void flipHorizontal(boolean flip);
 	
+ 	// Screen memory as part of class...
+ 	// Question should we fix size it or malloc it depending on size of 
+
+protected: 	// Screen? ... 
+#ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
+	uint8_t *screenmemory; 
+#else 	
+	uint8_t screenmemory [LCDMAXMEMORYSIZE]; 
+#endif
+
 private:
 	uint8_t csPin, dcPin, rstPin, sckPin, mosiPin;
 //	volatile uint8_t *wrport, *wrreg, *rdport, *rdreg;
@@ -255,14 +265,6 @@ private:
 #ifdef KINETISL
  	KINETISL_SPI_t *_pkinetisl_spi;
 #endif	
- 	// Screen memory as part of class...
- 	// Question should we fix size it or malloc it depending on size of 
- 	// Screen? ... 
-#ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
-	uint8_t *screenmemory; 
-#else 	
-	uint8_t screenmemory [LCDMAXMEMORYSIZE]; 
-#endif
 	uint16_t _screenmemory_size;
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
@@ -424,6 +426,32 @@ private:
 		waitTransmitComplete();
 	}
 #endif
+
+};
+
+class TeensyView64 : public TeensyView {
+public:
+	TeensyView64 (uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, SPIClass *spi=&SPI)
+			: TeensyView(rst, dc, cs, sck, mosi, 64, spi) {
+		screenmemory = _screen_memory_64_line;
+
+	}
+
+protected:
+	uint8_t _screen_memory_64_line[LCDWIDTH*64/8];
+
+};
+
+class TeensyView32 : public TeensyView {
+public:
+	TeensyView32 (uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t mosi, SPIClass *spi=&SPI)
+			: TeensyView(rst, dc, cs, sck, mosi, 32, spi) {
+		screenmemory = _screen_memory_32_line;
+
+	}
+
+protected:
+	uint8_t _screen_memory_32_line[LCDWIDTH*32/8];
 
 };
 #endif
