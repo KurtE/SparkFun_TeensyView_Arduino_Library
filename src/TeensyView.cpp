@@ -217,8 +217,8 @@ void TeensyView::begin()
 	command(0x40);
 	//command(0x00);
 	/////////////////////////////////
-	//command(DISPLAYALLON_RESUME);           // 0xA4
-	//command(NORMALDISPLAY);                 // 0xA6
+	command(DISPLAYALLON_RESUME);           // 0xA4
+	command(NORMALDISPLAY);                 // 0xA6
 
 	command(DEACTIVATESCROLL);
 
@@ -379,9 +379,9 @@ void TeensyView::contrast(uint8_t contrast) {
 // doing really tricky things. 
 void TeensyView::display(void) {
 	beginSPITransaction();
-	*_dcport  &= ~_dcpinmask; // assert DC
+	setCommandMode(); // assert DC
 	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address));
-	*_dcport  |= _dcpinmask;
+	setDataMode();
 	_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8);
 	endSPITransaction();
 }
@@ -410,10 +410,11 @@ void TeensyView::displayAyncCallBack(void) {
 	//Serial.printf("%d:%d\n", _spi_bus, _display_async_state);
 
 	if (_display_async_state == 1) {
-		*_dcport  |= _dcpinmask;
+		setDataMode();
 		_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8, _displayAyncCB);
 	} else {
 		// Finished the screen update. 
+		setDataMode();
 		endSPITransaction();
 		_display_async_state = 0xff; 
 		// And say that we are no longer actively updating display
@@ -452,10 +453,59 @@ bool TeensyView::displayAsync(void) {
 
 	// Use the call back function to start the transfer
 	beginSPITransaction();
-	*_dcport  &= ~_dcpinmask; // assert DC
+	setCommandMode(); // assert DC
 
 	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address), _displayAyncCB);
 	return true;
+}
+
+bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
+	// This assumes we are using _command_buffer which has been initialized... 
+	if (do_async) {
+
+		if (displayAsyncActive()) 
+			return false;
+
+		// Kludge need to setup for static call back function.
+		if (!_displayAyncCB) {
+			if (_spi_bus == 0) {
+				_displayAyncCB = &callback0;
+			}
+	#if SPI_INTERFACES_COUNT > 1
+			if (_spi_bus == 1) {
+				_displayAyncCB = &callback1;
+			}
+	#endif
+	#if SPI_INTERFACES_COUNT > 2
+			if (_spi_bus == 2) {
+				_displayAyncCB = &callback2;
+			}
+	#endif
+		}
+
+		// Now wait until we can claim the display...
+		while (s_tvcb_active_object[_spi_bus] != nullptr) ;
+		s_tvcb_active_object[_spi_bus] = this; 	// Save away our this
+
+	}
+
+	// Use the call back function to start the transfer
+	beginSPITransaction();
+	setCommandMode(); // assert DC
+
+	if (do_async) {
+		// Start the transfer
+		_display_async_state = 1;  // set to not outut other main buffer
+		 
+		_spi->transfer(_command_buffer, NULL, count, _displayAyncCB);
+	} else {
+		// Not async so output command buffer. 
+		_spi->transfer(_command_buffer, NULL, count);
+		setDataMode();
+		endSPITransaction();
+	}
+	return true;
+
 }
 
 bool TeensyView::displayAsyncActive() {
@@ -965,21 +1015,82 @@ void TeensyView::scrollStop(void){
 
 Set row start to row stop on the OLED to scroll right. Refer to http://learn.microview.io/intro/general-overview-of-microview.html for explanation of the rows.
 */
-void TeensyView::scrollRight(uint8_t start, uint8_t stop){
+void TeensyView::scrollRight(uint8_t start, uint8_t stop, bool do_async){
+	if (stop<start)		// stop must be larger or equal to start
+		return;
+ 	uint8_t *pcb = _command_buffer;
+// 	*pcb++ = DEACTIVATESCROLL;
+	*pcb++ = RIGHT_HORIZONTALSCROLL;
+	*pcb++ = 0x00;
+	*pcb++ = start;
+	*pcb++ = 0x0;		// scroll speed frames , TODO
+	*pcb++ = stop;
+	*pcb++ = 0x00;
+	*pcb++ = 0xFF;
+	*pcb++ = ACTIVATESCROLL;
+	outputCommandString((uint8_t)(pcb-_command_buffer), do_async); 
+}
+/** \brief Right scrolling.
+
+Set row start to row stop on the OLED to scroll right. Refer to http://learn.microview.io/intro/general-overview-of-microview.html for explanation of the rows.
+*/
+void TeensyView::scrollLeft(uint8_t start, uint8_t stop, bool do_async){
+	if (stop<start)		// stop must be larger or equal to start
+		return;
 	if (stop<start)		// stop must be larger or equal to start
 	return;
-	scrollStop();		// need to disable scrolling before starting to avoid memory corrupt
-	beginSPITransaction();
-	command(RIGHTHORIZONTALSCROLL, false);
-	command(0x00, false);
-	command(start, false);
-	command(0x7, false);		// scroll speed frames , TODO
-	command(stop, false);
-	command(0x00, false);
-	command(0xFF, false);
-	command(ACTIVATESCROLL, true);
-	endSPITransaction();
+ 	uint8_t *pcb = _command_buffer;
+// 	*pcb++ = DEACTIVATESCROLL;
+	*pcb++ = LEFT_HORIZONTALSCROLL;
+	*pcb++ = 0x00;
+	*pcb++ = start;
+	*pcb++ = 0x0;		// scroll speed frames , TODO
+	*pcb++ = stop;
+	*pcb++ = 0x00;
+	*pcb++ = 0xFF;
+	*pcb++ = ACTIVATESCROLL;
+	outputCommandString((uint8_t)(pcb-_command_buffer), do_async); 
 }
+
+
+// startscrolldiagright
+// Activate a diagonal scroll for rows start through stop
+// Hint, the display is 16 rows tall. To scroll the whole display, run:
+// display.scrollright(0x00, 0x0F)
+void TeensyView::scrollVertRight(uint8_t start, uint8_t stop, bool do_async) {
+ 	uint8_t *pcb = _command_buffer;
+	*pcb++ = SETVERTICALSCROLLAREA;
+	*pcb++ = 0X00;
+	*pcb++ = _height;
+	*pcb++ = VERTICALRIGHTHORIZONTALSCROLL;
+	*pcb++ = 0X00;
+	*pcb++ = start;
+	*pcb++ = 0X00;
+	*pcb++ = stop;
+	*pcb++ = 0X01;
+	*pcb++ = ACTIVATESCROLL;
+	outputCommandString((uint8_t)(pcb-_command_buffer), do_async); 
+}
+
+// startscrolldiagleft
+// Activate a diagonal scroll for rows start through stop
+// Hint, the display is 16 rows tall. To scroll the whole display, run:
+// display.scrollright(0x00, 0x0F)
+void TeensyView::scrollVertLeft(uint8_t start, uint8_t stop, bool do_async) {
+ 	uint8_t *pcb = _command_buffer;
+	*pcb++ = SETVERTICALSCROLLAREA;
+	*pcb++ = 0X00;
+	*pcb++ = _height;
+	*pcb++ = VERTICALLEFTHORIZONTALSCROLL;
+	*pcb++ = 0X00;
+	*pcb++ = start;
+	*pcb++ = 0X00;
+	*pcb++ = stop;
+	*pcb++ = 0X01;
+	*pcb++ = ACTIVATESCROLL;
+	outputCommandString((uint8_t)(pcb-_command_buffer), do_async); 
+}
+
 
 /** \brief Vertical flip.
 

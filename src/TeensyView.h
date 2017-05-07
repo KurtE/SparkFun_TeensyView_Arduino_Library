@@ -110,7 +110,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define ACTIVATESCROLL 					0x2F
 #define DEACTIVATESCROLL 				0x2E
 #define SETVERTICALSCROLLAREA 			0xA3
-#define RIGHTHORIZONTALSCROLL 			0x26
+#define RIGHT_HORIZONTALSCROLL 			0x26
 #define LEFT_HORIZONTALSCROLL 			0x27
 #define VERTICALRIGHTHORIZONTALSCROLL	0x29
 #define VERTICALLEFTHORIZONTALSCROLL	0x2A
@@ -162,6 +162,7 @@ public:
 	void displayAyncCallBack(void);
 	bool displayAsync(void);
 	bool displayAsyncActive();
+	bool outputCommandString(uint8_t count, bool do_async);
 
 	// Kludge - static call backs for each SPI buss...
 	void  (*_displayAyncCB)();
@@ -211,10 +212,10 @@ public:
 	uint8_t getFontTotalChar(void);
 
 	// LCD Rotate Scroll functions	
-	void scrollRight(uint8_t start, uint8_t stop);
-	void scrollLeft(uint8_t start, uint8_t stop);
-	void scrollVertRight(uint8_t start, uint8_t stop);
-	void scrollVertLeft(uint8_t start, uint8_t stop);
+	void scrollRight(uint8_t start, uint8_t stop, bool do_async = false);
+	void scrollLeft(uint8_t start, uint8_t stop, bool do_async = false);
+	void scrollVertRight(uint8_t start, uint8_t stop, bool do_async = false);
+	void scrollVertLeft(uint8_t start, uint8_t stop, bool do_async = false);
 	void scrollStop(void);
 	void flipVertical(boolean flip);
 	void flipHorizontal(boolean flip);
@@ -243,7 +244,7 @@ private:
     // ASYNC support, need to save stuff to be used in callback
     volatile uint8_t _display_async_state; 	// What state we are in.  Probably even numbers output page description, Odd output page data.
 	uint8_t _set_column_row_address[6];
-
+	uint8_t _command_buffer[12];
 
  	//SPINClass *_pspin;
  	SPIClass *_spi;		// Which spi buss to use. 
@@ -278,7 +279,7 @@ private:
 
 #ifdef KINETISK	
 	// Always use on TLC, only use on T3.x if DC pin is not on hardware CS pin
-	uint8_t _dcpinAsserted;
+	volatile uint8_t _dcpinAsserted;
 	void setCommandMode() __attribute__((always_inline)) {
 		if (!_dcpinAsserted) {
 			*_dcport  &= ~_dcpinmask;
