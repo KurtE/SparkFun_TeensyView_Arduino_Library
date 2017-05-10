@@ -77,64 +77,28 @@ void TeensyView::spiSetup()
 
 	_spi->begin();		// startup SPI
 	Serial.println("SPI Setup");
-#ifdef KINETISK
-	_pkinetisk_spi = &_spi->SPIRegisters(); // get handle on which SPI register set to use
-#else
-	_pkinetisl_spi = &_spi->SPIRegisters(); // get handle on which SPI register set to use
-#endif		
-		// Now see if both cs and dc are chip select pins
-#ifdef KINETISK_XXX
-	if (_spi->pinIsChipSelect(dcPin, csPin)) {
-		Serial.println("CS and DC both hardware");
-		_pcs_data = _spi->setCS(csPin);
-		_pcs_command = _pcs_data | _spi->setCS(dcPin);
-		_csport = 0;	// make sure not to use it...
-	} else if (_spi->pinIsChipSelect(dcPin)) {
-		Serial.println("only DC is hardware");
-		_pcs_data = 0;
-		_pcs_command = _pcs_data | _spi->setCS(dcPin);
-		pinMode(csPin, OUTPUT);
-		_csport    = portOutputRegister(digitalPinToPort(csPin));
-		_cspinmask = digitalPinToBitMask(csPin);
-		*_csport |= _cspinmask;
-	} else 
-#endif
-	{
-		Serial.println("Not using Hardware CS pins");
-		_pcs_data = 0;
-		_pcs_command = 0;
-		pinMode(csPin, OUTPUT);
-		_csport    = portOutputRegister(digitalPinToPort(csPin));
-		_cspinmask = digitalPinToBitMask(csPin);
-		*_csport |= _cspinmask;
-		pinMode(dcPin, OUTPUT);
-		_dcport    = portOutputRegister(digitalPinToPort(dcPin));
-		_dcpinmask = digitalPinToBitMask(dcPin);
-		*_dcport |= _dcpinmask;
-		_dcpinAsserted = 0;
-	}
+	Serial.println("Not using Hardware CS pins");
+	pinMode(csPin, OUTPUT);
+	_csport    = portOutputRegister(digitalPinToPort(csPin));
+	_cspinmask = digitalPinToBitMask(csPin);
+	*_csport |= _cspinmask;
+	pinMode(dcPin, OUTPUT);
+	_dcport    = portOutputRegister(digitalPinToPort(dcPin));
+	_dcpinmask = digitalPinToBitMask(dcPin);
+	*_dcport |= _dcpinmask;
+	_dcpinAsserted = 0;
 #else
 	//Serial.println("Not Teensy 3.x or LC not using SPIN");
-	pinMode(csPin, OUTPUT);	// CS is an OUTPUT
-	digitalWrite(csPin, HIGH);	// Start CS High
-	
-	//Do alt pin assignment
-	_spi->setMOSI(mosiPin);
-	_spi->setSCK(sckPin);
-	
+	pinMode(csPin, OUTPUT);
+	_csport    = portOutputRegister(digitalPinToPort(csPin));
+	_cspinmask = digitalPinToBitMask(csPin);
+	*_csport |= _cspinmask;
+	pinMode(dcPin, OUTPUT);
+	_dcport    = portOutputRegister(digitalPinToPort(dcPin));
+	_dcpinmask = digitalPinToBitMask(dcPin);
+	*_dcport |= _dcpinmask;
+	_dcpinAsserted = 0;
 	_spi->begin();
 #endif	
-}
-
-/** \brief Transfer a byte over SPI
-
-	Use the SPI library to transfer a byte. Only used for data OUTPUT.
-	This function does not toggle the CS pin. Do that before and after!
-**/
-void TeensyView::spiTransfer(byte data)
-{
-    digitalWrite(csPin, LOW);
-	_spi->transfer(data);	
-    digitalWrite(csPin, HIGH);
 }
 

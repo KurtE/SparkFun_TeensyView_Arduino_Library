@@ -43,7 +43,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifdef __cplusplus
 #include "Arduino.h"
 #include <SPI.h>
+#if defined(KINETISK) || defined(KINESISL)
 #include <DMAChannel.h>
+#endif
 
 #endif
 
@@ -158,7 +160,6 @@ public:
 	void invert(boolean inv);
 	void contrast(uint8_t contrast);
 	void display(void);
-	void display(uint8_t);
 	void displayAyncCallBack(void);
 	bool displayAsync(void);
 	bool displayAsyncActive();
@@ -222,6 +223,8 @@ public:
 	
  	// Screen memory as part of class...
  	// Question should we fix size it or malloc it depending on size of 
+ 	SPIClass *_spi;		// Which spi buss to use. 
+ 	
 
 protected: 	// Screen? ... 
 #ifdef TEENSYVIEW_USE_MALLOC		// Define this if you wish for memory to be allocated by malloc to size of display
@@ -242,11 +245,9 @@ private:
 	uint32_t clockRateSetting;
 	
 	// Communication (Defined in hardware.cpp)
-	void spiTransfer(byte data);
 	void spiSetup();
 
 	// 
-	uint8_t _pcs_data, _pcs_command;
     volatile uint8_t *_csport, *_dcport;
     uint8_t _cspinmask, _dcpinmask;
     uint8_t _height;
@@ -257,14 +258,7 @@ private:
 	uint8_t _command_buffer[12];
 
  	//SPINClass *_pspin;
- 	SPIClass *_spi;		// Which spi buss to use. 
  	uint8_t	 _spi_bus;	// which bus are we on?
-#ifdef KINETISK	
- 	KINETISK_SPI_t *_pkinetisk_spi;
-#endif
-#ifdef KINETISL
- 	KINETISL_SPI_t *_pkinetisl_spi;
-#endif	
 	uint16_t _screenmemory_size;
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
@@ -277,9 +271,6 @@ private:
 			*_csport |= _cspinmask;
 		_spi->endTransaction();
 	}
-
-
-#ifdef KINETISK	
 	// Always use on TLC, only use on T3.x if DC pin is not on hardware CS pin
 	volatile uint8_t _dcpinAsserted;
 	void setCommandMode() __attribute__((always_inline)) {
@@ -295,137 +286,7 @@ private:
 			_dcpinAsserted = 0;
 		}
 	}
-	void waitFifoNotFull(void) {
-	    uint32_t sr;
-	    uint32_t tmp __attribute__((unused));
-	    do {
-	        sr = _pkinetisk_spi->SR;
-	        if (sr & 0xF0) tmp = _pkinetisk_spi->POPR;  // drain RX FIFO
-	    } while ((sr & (15 << 12)) > (((uint32_t)_spi->queueSize()-1) << 12));
-	}
-	void waitFifoEmpty(void) {
-	    uint32_t sr;
-	    uint32_t tmp __attribute__((unused));
-	    do {
-	        sr = _pkinetisk_spi->SR;
-	        if (sr & 0xF0) tmp = _pkinetisk_spi->POPR;  // drain RX FIFO
-	    } while ((sr & 0xF0F0) > 0);             // wait both RX & TX empty
-	}
-	void waitTransmitComplete(void)  {
-	    uint32_t tmp __attribute__((unused));
-	    while (!(_pkinetisk_spi->SR & SPI_SR_TCF)) ; // wait until final output done
-	    tmp = _pkinetisk_spi->POPR;                  // drain the final RX FIFO word
-	}
-	void waitTransmitComplete(uint32_t mcr) {
-	    uint32_t tmp __attribute__((unused));
-	    while (1) {
-	        uint32_t sr = _pkinetisk_spi->SR;
-	        if (sr & SPI_SR_EOQF) break;  // wait for last transmit
-	        if (sr &  0xF0) tmp = _pkinetisk_spi->POPR;
-	    }
-	    _pkinetisk_spi->SR = SPI_SR_EOQF;
-	    _pkinetisk_spi->MCR = mcr;
-	    while (_pkinetisk_spi->SR & 0xF0) {
-	        tmp = _pkinetisk_spi->POPR;
-	    }
-	}
 
-	void writecommand_cont(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_command) setCommandMode();
-		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-		waitFifoNotFull();
-	}
-	void writedata8_cont(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_command) setDataMode();
-		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-		waitFifoNotFull();
-	}
-	void writedata16_cont(uint16_t d) __attribute__((always_inline)) {
-		if (!_pcs_command) setDataMode();
-		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_CONT;
-		waitFifoNotFull();
-	}
-	void writecommand_last(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_command) setCommandMode();
-		uint32_t mcr = _pkinetisk_spi->MCR;
-		_pkinetisk_spi->PUSHR = c | (_pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-		waitTransmitComplete(mcr);
-	}
-	void writedata8_last(uint8_t c) __attribute__((always_inline)) {
-		if (!_pcs_command) setDataMode();
-		uint32_t mcr = _pkinetisk_spi->MCR;
-		_pkinetisk_spi->PUSHR = c | (_pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-		waitTransmitComplete(mcr);
-	}
-	void writedata16_last(uint16_t d) __attribute__((always_inline)) {
-		if (!_pcs_command) setDataMode();
-		uint32_t mcr = _pkinetisk_spi->MCR;
-		_pkinetisk_spi->PUSHR = d | (_pcs_data << 16) | SPI_PUSHR_CTAS(1) | SPI_PUSHR_EOQ;
-		waitTransmitComplete(mcr);
-		}
-
-#endif
-#ifdef KINETISL
-	uint8_t _data_sent_not_completed;
-	void waitTransmitComplete() __attribute__((always_inline)) {
-		if (_data_sent_not_completed) {
-			uint8_t timeout_count = 0xff; // hopefully enough 
-			while (!(_pkinetisl_spi->S & SPI_S_SPRF) && timeout_count--) ; // wait 
-			uint8_t d __attribute__((unused));
-			d = _pkinetisl_spi->DL;
-			_data_sent_not_completed = false; // We hopefully received our data...
-		}
-	}
-
-	// Always use on TLC
-	uint8_t _dcpinAsserted;
-	void setCommandMode() __attribute__((always_inline)) {
-		if (!_dcpinAsserted) {
-			waitTransmitComplete();
-			*_dcport  &= ~_dcpinmask;
-			_dcpinAsserted = 1;
-		}
-	}
-
-	void setDataMode() __attribute__((always_inline)) {
-		if (_dcpinAsserted) {
-			waitTransmitComplete();
-			*_dcport  |= _dcpinmask;
-			_dcpinAsserted = 0;
-		}
-	}
-
-	void outputToSPI(uint8_t c)  __attribute__((always_inline)) {
-		while (!(_pkinetisl_spi->S & SPI_S_SPTEF)) ; // wait if output buffer busy.
-		// Clear out buffer if there is something there...
-		if  ((_pkinetisl_spi->S & SPI_S_SPRF)) {
-			uint8_t d __attribute__((unused));
-			d = _pkinetisl_spi->DL;
-		} 
-		_pkinetisl_spi->DL = c; // output byte
-		_data_sent_not_completed = 1; // let system know we sent something	
-	}
-
-	void writecommand_cont(uint8_t c) __attribute__((always_inline)) {
-		setCommandMode();
-		outputToSPI(c);
-	}
-	void writedata8_cont(uint8_t c) __attribute__((always_inline)) {
-		setDataMode();
-		outputToSPI(c);
-	}
-
-	void writecommand_last(uint8_t c) __attribute__((always_inline)) {
-		setCommandMode();
-		outputToSPI(c);
-		waitTransmitComplete();
-	}
-	void writedata8_last(uint8_t c) __attribute__((always_inline)) {
-		setDataMode();
-		outputToSPI(c);
-		waitTransmitComplete();
-	}
-#endif
 
 };
 

@@ -245,16 +245,8 @@ void TeensyView::begin()
 	defined in hardware.cpp to send the data.
 */
 void TeensyView::command(uint8_t c, boolean last) {
-#if defined(KINETISK) || defined(KINETISL)
-//	Serial.printf("command: %d %d\n", c, last); 
-	if (last)
-		writecommand_last(c);
-	else	
-		writecommand_cont(c);
-#else
-	digitalWrite(dcPin, LOW);;	// DC pin LOW for a command
-	spiTransfer(c);			// Transfer the command byte
-#endif
+	setCommandMode();
+	_spi->transfer(c);
 }
 
 /** \brief Send the display a data byte
@@ -265,15 +257,8 @@ void TeensyView::command(uint8_t c, boolean last) {
 	defined in hardware.cpp to send the data.
 */
 void TeensyView::data(uint8_t c, boolean last) {
-#if defined(KINETISK) || defined(KINETISL)
-	if (last)
-		writedata8_last(c);
-	else	
-		writedata8_cont(c);
-#else
-		digitalWrite(dcPin, HIGH);	// DC HIGH for a data byte
-		spiTransfer(c); 		// Transfer the data byte
-#endif
+	setDataMode();
+	_spi->transfer(c);
 }
 
 /** \brief Set SSD1306 page address.
@@ -295,7 +280,7 @@ void TeensyView::setColumnAddress(uint8_t add) {
 	//command((0x0f&add));
 	command(0x21, false);
 	command(add & 0x7F, false);
-	command(0x7F, _pcs_command? false : true);  // If we are doing ds, lets have this one wait until complete before we continue
+	command(0x7F, true);  // If we are doing ds, lets have this one wait until complete before we continue
 	
 	return;
 }
@@ -305,26 +290,7 @@ void TeensyView::setColumnAddress(uint8_t add) {
     To clear GDRAM inside the LCD controller, pass in the variable mode = ALL and to clear screen page buffer pass in the variable mode = PAGE.
 */
 void TeensyView::clear(uint8_t mode) {
-#if 1
 	clear(mode, 0);
-#else
-	if (mode==ALL) {
-		beginSPITransaction();
-		for (int i=0;i<8; i++) {
-			setPageAddress(i);
-			setColumnAddress(0);
-			for (int j=0; j<0x80; j++) {
-				data(0);
-			}
-		}
-		endSPITransaction();
-	}
-	else
-	{
-		memset(screenmemory,0,LCDMEMORYSIZE);			// write zeros on MCU side buffer
-		//display();
-	}
-#endif	
 }
 
 /** \brief Clear or replace screen buffer or SSD1306's memory with a character.
@@ -332,23 +298,10 @@ void TeensyView::clear(uint8_t mode) {
 	To clear GDRAM inside the LCD controller, pass in the variable mode = ALL with c character and to clear screen page buffer, pass in the variable mode = PAGE with c character.
 */
 void TeensyView::clear(uint8_t mode, uint8_t c) {
-	if (mode & HARDWARE_MEM) {
-		beginSPITransaction();
-		for (int i=0;i<8; i++) {
-			setPageAddress(i);
-			setColumnAddress(0);
-			for (int j=0; j<0x80; j++) {
-				if ((j == (LCDWIDTH-1)) && (!_pcs_command || (i==7)))
-					data(c, true);
-				else
-					data(c, false);
-			}
-		}
-		endSPITransaction();
-	}
-	if (mode & PAGE) {
-		memset(screenmemory,c, _screenmemory_size);			// write 'c' on MCU side buffer
-		//display();
+	memset(screenmemory,c, _screenmemory_size);			// write 'c' on MCU side buffer
+	// Change to always clear out our memory and optionally just update the display
+	if (mode != PAGE) {
+		display();
 	}
 }
 
@@ -380,7 +333,6 @@ void TeensyView::contrast(uint8_t contrast) {
 
     Bulk move the screen buffer to the SSD1306 controller's memory so that images/graphics drawn on the screen buffer will be displayed on the OLED.
 */
-#if 1
 // Real hack to see if we can use new Transfer function to speed things up without 
 // doing really tricky things. 
 void TeensyView::display(void) {
@@ -518,38 +470,6 @@ bool TeensyView::displayAsyncActive() {
 	return _display_async_state != 0xff;
 }
 
-#else
-void TeensyView::display(void) {
-	uint8_t i, j;
-	uint8_t *pscreen_data = screenmemory; 
-	uint8_t count_pages = (_height/8);
-	beginSPITransaction();
-	for (i=0; i<count_pages; i++) {
-		setPageAddress(i);
-		setColumnAddress(0);
-		for (j=0;j<LCDWIDTH;j++) {
-			if ((j == (LCDWIDTH-1)) && (!_pcs_command || (i == (count_pages-1))))
-				data(*pscreen_data, true);
-			else
-				data(*pscreen_data, false);
-			pscreen_data++;
-		}
-	}
-	endSPITransaction();
-}
-#endif
-
-void TeensyView::display(uint8_t i) {
-	uint8_t j;
-
-	beginSPITransaction();
-	setPageAddress(i);
-	setColumnAddress(0);
-	for (j=0;j<LCDWIDTH;j++) {
-		data(screenmemory[i*LCDWIDTH+j]);
-	}
-	endSPITransaction();
-}
 
 /** \brief Override Arduino's Print.
 
