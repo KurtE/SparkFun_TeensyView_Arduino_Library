@@ -76,8 +76,6 @@ void TeensyView::spiSetup()
 	_spi->setSCK(sckPin);
 
 	_spi->begin();		// startup SPI
-	Serial.println("SPI Setup");
-	Serial.println("Not using Hardware CS pins");
 	pinMode(csPin, OUTPUT);
 	_csport    = portOutputRegister(digitalPinToPort(csPin));
 	_cspinmask = digitalPinToBitMask(csPin);

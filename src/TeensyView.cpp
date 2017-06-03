@@ -335,15 +335,30 @@ void TeensyView::contrast(uint8_t contrast) {
 */
 // Real hack to see if we can use new Transfer function to speed things up without 
 // doing really tricky things. 
+#define OUT_BUFF_SIZE 32
 void TeensyView::display(void) {
 	beginSPITransaction();
 	setCommandMode(); // assert DC
+#ifdef SPI_HAS_TRANSFER_BUF
 	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address));
 	setDataMode();
 	_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8);
+#else
+	uint8_t out_buff[OUT_BUFF_SIZE];	// Not sure how big to make this here, but...
+	memcpy (out_buff, _set_column_row_address, sizeof(_set_column_row_address));
+	_spi->transfer(out_buff, sizeof(_set_column_row_address));
+	setDataMode();
+	for (uint16_t i = 0; i < _height*LCDWIDTH/8; i += OUT_BUFF_SIZE) {
+		memcpy(out_buff, &screenmemory[i], OUT_BUFF_SIZE);
+		_spi->transfer(out_buff, OUT_BUFF_SIZE);
+
+	}
+
+#endif	
 	endSPITransaction();
 }
 
+#ifdef SPI_HAS_TRANSFER_ASYNC
 void TeensyView::callback0() 
 {
 	s_tvcb_active_object[0]->displayAyncCallBack();
@@ -417,8 +432,16 @@ bool TeensyView::displayAsync(void) {
 	return true;
 }
 
+bool TeensyView::displayAsyncActive() {
+	return _display_async_state != 0xff;
+}
+
+
+#endif
+
 bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
 	// This assumes we are using _command_buffer which has been initialized... 
+#ifdef SPI_HAS_TRANSFER_ASYNC
 	if (do_async) {
 
 		if (displayAsyncActive()) 
@@ -446,7 +469,6 @@ bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
 		s_tvcb_active_object[_spi_bus] = this; 	// Save away our this
 
 	}
-
 	// Use the call back function to start the transfer
 	beginSPITransaction();
 	setCommandMode(); // assert DC
@@ -463,11 +485,19 @@ bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
 		endSPITransaction();
 	}
 	return true;
-
-}
-
-bool TeensyView::displayAsyncActive() {
-	return _display_async_state != 0xff;
+#else
+	// We don't have async support
+	beginSPITransaction();
+	setCommandMode(); // assert DC
+#ifdef SPI_HAS_TRANSFER_BUF	
+	_spi->transfer(_command_buffer, NULL, count);
+#else
+	_spi->transfer(_command_buffer, count);
+#endif		
+	setDataMode();
+	endSPITransaction();
+	return true;		
+#endif
 }
 
 
@@ -1067,6 +1097,6 @@ void TeensyView::drawBitmap(const uint8_t * bitArray, uint16_t cbArray)
 {
 	if (cbArray > _screenmemory_size)
 		cbArray = _screenmemory_size;
-  	for (int i=0; i<cbArray; i++)
+  	for (uint16_t i=0; i<cbArray; i++)
     	screenmemory[i] = bitArray[i];
 }

@@ -47,6 +47,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <DMAChannel.h>
 #endif
 
+#ifndef SPI_INTERFACES_COUNT
+#if defined(__MKL26Z64__)
+#define SPI_INTERFACES_COUNT 2
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
+#define SPI_INTERFACES_COUNT 3
+#else
+#define SPI_INTERFACES_COUNT 1
+#endif
+#endif
+
 #endif
 
 #define swap(a, b) { uint8_t t = a; a = b; b = t; }
@@ -160,9 +170,13 @@ public:
 	void invert(boolean inv);
 	void contrast(uint8_t contrast);
 	void display(void);
+
+#ifdef SPI_HAS_TRANSFER_ASYNC
 	void displayAyncCallBack(void);
 	bool displayAsync(void);
 	bool displayAsyncActive();
+#endif
+
 	bool outputCommandString(uint8_t count, bool do_async);
 
 	// Kludge - static call backs for each SPI buss...
