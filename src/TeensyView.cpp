@@ -95,8 +95,6 @@ const static uint8_t splash_screen [] =
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-TeensyView *TeensyView::s_tvcb_active_object[SPI_INTERFACES_COUNT] = {(TeensyView*)0};
-
 //#define LAST_SCREEN_DATA (&screenmemory [LCDMEMORYSIZE-1])
 /** \brief TeensyView Constructor -- SPI Mode
 
@@ -129,7 +127,6 @@ TeensyView::TeensyView(uint8_t rst, uint8_t dc, uint8_t cs, uint8_t sck, uint8_t
 #endif	
 
 	_display_async_state = 0xff; 
-	_displayAyncCB = nullptr;
 }
 
 //Set a non-default clock rate.  Run this before begin if alt rate is desired.
@@ -235,6 +232,8 @@ void TeensyView::begin()
 	endSPITransaction();			// Actually clear will handle this as well
 	clear(ALL);						// Erase hardware memory inside the OLED controller to avoid random data in memory.
 	drawBitmap(splash_screen, sizeof(splash_screen));		// Set the initial screen to our saved splash screen
+	_event_responder.setContext(this);	// Set the contxt to us
+	_event_responder.attachImmediate(&TeensyView::asyncEventResponder); 
 }
 
 /** \brief Send the display a command byte
@@ -359,39 +358,34 @@ void TeensyView::display(void) {
 }
 
 #ifdef SPI_HAS_TRANSFER_ASYNC
-void TeensyView::callback0() 
-{
-	s_tvcb_active_object[0]->displayAyncCallBack();
+
+//
+//	EventResponder _event_responder; 
+// Use event object
+void TeensyView::asyncEventResponder(EventResponderRef event_responder) {
+	TeensyView *tv = (TeensyView*)event_responder.getContext();
+	tv->displayAsyncCallBack();
 }
-#if SPI_INTERFACES_COUNT > 1	
-void TeensyView::callback1() 
-{
-	s_tvcb_active_object[1]->displayAyncCallBack();
-}
-#endif
-#if SPI_INTERFACES_COUNT > 2
-void TeensyView::callback2() 
-{
-	s_tvcb_active_object[2]->displayAyncCallBack();
-}
-#endif
 
 // Need to figure out how I will get here, but...
-void TeensyView::displayAyncCallBack(void) {
+void TeensyView::displayAsyncCallBack(void) {
 	// See what state we are in 
 	_display_async_state++;
 	//Serial.printf("%d:%d\n", _spi_bus, _display_async_state);
 
 	if (_display_async_state == 1) {
 		setDataMode();
-		_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8, _displayAyncCB);
+#ifdef SPI_HAS_TRANSFER_ASYNC
+		_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8, _event_responder);
+#else
+		_spi->transfer(screenmemory, NULL, _height*LCDWIDTH/8);
+#endif
 	} else {
 		// Finished the screen update. 
 		setDataMode();
 		endSPITransaction();
 		_display_async_state = 0xff; 
 		// And say that we are no longer actively updating display
-		s_tvcb_active_object[_spi_bus] = nullptr;
 	}
 
 }
@@ -402,25 +396,7 @@ bool TeensyView::displayAsync(void) {
 		return false;
 
 	// Kludge need to setup for static call back function.
-	if (!_displayAyncCB) {
-		if (_spi_bus == 0) {
-			_displayAyncCB = &callback0;
-		}
-#if SPI_INTERFACES_COUNT > 1
-		if (_spi_bus == 1) {
-			_displayAyncCB = &callback1;
-		}
-#endif
-#if SPI_INTERFACES_COUNT > 2
-		if (_spi_bus == 2) {
-			_displayAyncCB = &callback2;
-		}
-#endif
-	}
-
-	// Now wait until we can claim the display...
-	while (s_tvcb_active_object[_spi_bus] != nullptr) ;
-	s_tvcb_active_object[_spi_bus] = this; 	// Save away our this
+	_event_responder.clearEvent();	// Set the contxt to us
 
 	_display_async_state = 0; 
 
@@ -428,7 +404,7 @@ bool TeensyView::displayAsync(void) {
 	beginSPITransaction();
 	setCommandMode(); // assert DC
 
-	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address), _displayAyncCB);
+	_spi->transfer(_set_column_row_address, NULL, sizeof(_set_column_row_address), _event_responder);
 	return true;
 }
 
@@ -447,27 +423,7 @@ bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
 		if (displayAsyncActive()) 
 			return false;
 
-		// Kludge need to setup for static call back function.
-		if (!_displayAyncCB) {
-			if (_spi_bus == 0) {
-				_displayAyncCB = &callback0;
-			}
-	#if SPI_INTERFACES_COUNT > 1
-			if (_spi_bus == 1) {
-				_displayAyncCB = &callback1;
-			}
-	#endif
-	#if SPI_INTERFACES_COUNT > 2
-			if (_spi_bus == 2) {
-				_displayAyncCB = &callback2;
-			}
-	#endif
-		}
-
-		// Now wait until we can claim the display...
-		while (s_tvcb_active_object[_spi_bus] != nullptr) ;
-		s_tvcb_active_object[_spi_bus] = this; 	// Save away our this
-
+		_event_responder.clearEvent();	// Set the contxt to us
 	}
 	// Use the call back function to start the transfer
 	beginSPITransaction();
@@ -477,7 +433,7 @@ bool TeensyView::outputCommandString(uint8_t count, bool do_async) {
 		// Start the transfer
 		_display_async_state = 1;  // set to not outut other main buffer
 		 
-		_spi->transfer(_command_buffer, NULL, count, _displayAyncCB);
+		_spi->transfer(_command_buffer, NULL, count, _event_responder);
 	} else {
 		// Not async so output command buffer. 
 		_spi->transfer(_command_buffer, NULL, count);

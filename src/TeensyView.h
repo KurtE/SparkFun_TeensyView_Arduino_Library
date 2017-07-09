@@ -172,7 +172,9 @@ public:
 	void display(void);
 
 #ifdef SPI_HAS_TRANSFER_ASYNC
-	void displayAyncCallBack(void);
+	EventResponder _event_responder; 
+	static void asyncEventResponder(EventResponderRef event_responder);
+	void displayAsyncCallBack(void);
 	bool displayAsync(void);
 	bool displayAsyncActive();
 #endif
@@ -180,16 +182,6 @@ public:
 	bool outputCommandString(uint8_t count, bool do_async);
 
 	// Kludge - static call backs for each SPI buss...
-	void  (*_displayAyncCB)();
-	static void callback0();
-#if SPI_INTERFACES_COUNT > 1	
-	static void callback1();
-#endif
-#if SPI_INTERFACES_COUNT > 2	
-	static void callback2();
-#endif	
-	static  TeensyView *s_tvcb_active_object[SPI_INTERFACES_COUNT];
-
 	void setCursor(uint8_t x, uint8_t y);
 	void pixel(uint8_t x, uint8_t y);
 	void pixel(uint8_t x, uint8_t y, uint8_t color, uint8_t mode);
