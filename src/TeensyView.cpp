@@ -232,8 +232,10 @@ void TeensyView::begin()
 	endSPITransaction();			// Actually clear will handle this as well
 	clear(ALL);						// Erase hardware memory inside the OLED controller to avoid random data in memory.
 	drawBitmap(splash_screen, sizeof(splash_screen));		// Set the initial screen to our saved splash screen
+#ifdef SPI_HAS_TRANSFER_ASYNC
 	_event_responder.setContext(this);	// Set the contxt to us
 	_event_responder.attachImmediate(&TeensyView::asyncEventResponder); 
+#endif
 }
 
 /** \brief Send the display a command byte
