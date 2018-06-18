@@ -85,6 +85,14 @@ void TeensyView::spiSetup()
 	_dcpinmask = digitalPinToBitMask(dcPin);
 	*_dcport |= _dcpinmask;
 	_dcpinAsserted = 0;
+#elif defined(__OPENCR__)
+	pinMode(csPin, OUTPUT);
+	digitalWrite(csPin, HIGH);
+	pinMode(dcPin, OUTPUT);
+	digitalWrite(dcPin, HIGH);
+	_dcpinAsserted = 0;
+	_spi->beginFast();
+	_spi->transfer(0);	// Had issue with CLK not at right state
 #else
 	//Serial.println("Not Teensy 3.x or LC not using SPIN");
 	pinMode(csPin, OUTPUT);

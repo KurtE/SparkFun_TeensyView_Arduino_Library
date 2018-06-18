@@ -254,8 +254,10 @@ private:
 	void spiSetup();
 
 	// 
+#ifndef __OPENCR__
     volatile uint8_t *_csport, *_dcport;
     uint8_t _cspinmask, _dcpinmask;
+#endif    
     uint8_t _height;
 
     // ASYNC support, need to save stuff to be used in callback
@@ -269,26 +271,42 @@ private:
  	// Inline helper functions
 	void beginSPITransaction() __attribute__((always_inline)) {
 		_spi->beginTransaction(SPISettings(clockRateSetting, MSBFIRST, SPI_MODE0));
+#ifdef __OPENCR__
+		digitalWrite(csPin, LOW);
+#else		
 		if (_csport)
 			*_csport  &= ~_cspinmask;
+#endif
 	}
 	void endSPITransaction() __attribute__((always_inline)) {
+#ifdef __OPENCR__
+		digitalWrite(csPin, HIGH);
+#else		
 		if (_csport)
 			*_csport |= _cspinmask;
+#endif		
 		_spi->endTransaction();
 	}
 	// Always use on TLC, only use on T3.x if DC pin is not on hardware CS pin
 	volatile uint8_t _dcpinAsserted;
 	void setCommandMode() __attribute__((always_inline)) {
 		if (!_dcpinAsserted) {
+#ifdef __OPENCR__
+			digitalWrite(dcPin, LOW);
+#else		
 			*_dcport  &= ~_dcpinmask;
+#endif
 			_dcpinAsserted = 1;
 		}
 	}
 
 	void setDataMode() __attribute__((always_inline)) {
 		if (_dcpinAsserted) {
+#ifdef __OPENCR__
+			digitalWrite(dcPin, HIGH);
+#else		
 			*_dcport  |= _dcpinmask;
+#endif			
 			_dcpinAsserted = 0;
 		}
 	}
