@@ -247,7 +247,11 @@ void TeensyView::begin()
 	to send the data. For I2C and Parallel we use the write functions
 	defined in hardware.cpp to send the data.
 */
+#ifndef UNUSED
+#define UNUSED(x) x
+#endif
 void TeensyView::command(uint8_t c, boolean last) {
+	UNUSED(last);
 	setCommandMode();
 	_spi->transfer(c);
 }
@@ -260,6 +264,7 @@ void TeensyView::command(uint8_t c, boolean last) {
 	defined in hardware.cpp to send the data.
 */
 void TeensyView::data(uint8_t c, boolean last) {
+	UNUSED(last);
 	setDataMode();
 	_spi->transfer(c);
 }

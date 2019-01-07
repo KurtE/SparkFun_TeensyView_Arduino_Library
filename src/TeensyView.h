@@ -254,7 +254,11 @@ private:
 	void spiSetup();
 
 	// 
-#ifndef __OPENCR__
+#if defined(__IMXRT1052__) || defined(__IMXRT1062__)
+    volatile uint32_t *_csport, *_dcport;
+    uint8_t _cspinmask, _dcpinmask;
+#elif defined(__OPENCR__)	
+#else
     volatile uint8_t *_csport, *_dcport;
     uint8_t _cspinmask, _dcpinmask;
 #endif    
